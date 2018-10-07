@@ -1,11 +1,11 @@
 const {google} = require('googleapis');
+const moment = require('moment');
 
-const {authorize} = require('./auth');
+const {authorize,getSheetCalendarID} = require('./auth');
 const {pad} = require('./util');
-const {makeSheet} = require('./plansheet');
 
-const SPREADSHEET_ID = `1MSn8VuJlk5brcDqLgmFbxfMXXungtsV2PXjCJf-fLhc`;
-const CALENDAR_ID = `tap5kg3bc8tq9nsmi3rvee93hc@group.calendar.google.com`;
+const now = moment();
+const nextMonth = moment(now).add(1,"month");
 
 authorize("credentials.json", "token.json", [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -14,22 +14,21 @@ authorize("credentials.json", "token.json", [
 .then(auth => {
     const sheets = google.sheets({version: 'v4', auth});
     const calendar = google.calendar({version: 'v3', auth});
-    return Promise.all([sheets,calendar]);
+
+    return Promise.all([sheets,calendar,getSheetCalendarID()]);
 })
-.then(([sheets, calendar]) => makeSheet(sheets, SPREADSHEET_ID, 2018,11))
-.then(console.log)
-/*.then(([sheets,calendar]) => {
+.then(([sheets,calendar,{spreadsheetID,calendarID}]) => {
     return Promise.all([
-        deleteEventsInMonth(calendar, CALENDAR_ID, 2018, 9), 
-        getMeals(sheets, SPREADSHEET_ID, 2018, 9), 
-        calendar])
+        deleteEventsInMonth(calendar, calendarID, now.year(), now.month() + 1), 
+        getMeals(sheets, spreadsheetID, now.year(), now.month() + 1),
+        calendar, calendarID])
 })
-.then(([deltd, meals, calendar]) => {
+.then(([deltd, meals, calendar, calendarID]) => {
     console.log("Events deleted.")
-    meals.forEach(m => addEvent(calendar, CALENDAR_ID, mealToEvent(m)).then(e => {
-        console.log(`Event created: ${e.data.htmlLink}`)
+    meals.forEach(m => addEvent(calendar, calendarID, mealToEvent(m)).then(e => {
+        console.log(`Event created: ${e.data.summary}`);
     }).catch(err => console.log(`Error creating event: ${err}`)));
-})*/
+})
 .catch(console.log);
 
 const mealKeys = [
@@ -42,7 +41,7 @@ const mealKeys = [
 ]
 
 function getMeals(sheets, spreadsheetID, year, month) {
-    const colMon = 'B', colSun = 'H';
+    const colMon = 'A', colSun = 'G';
     const rowStart = 2;
     const fields = mealKeys.length;
     return new Promise((resolve, reject) => {
@@ -64,7 +63,13 @@ function getMeals(sheets, spreadsheetID, year, month) {
                         meal[mealKeys[i]] = rows[week*fields+i][day];
                     }
                     meal.dateTime = new Date(`${meal.time} ${year}-${month}-${meal.date}`);
-                    meals.push(meal);
+                    if( 
+                        meal.meal &&
+                        meal.meal !== "" &&
+                        meal.meal.toLowerCase() !== "unplanned meal"
+                    ) {
+                        meals.push(meal);
+                    }
                 }
             }
         }
